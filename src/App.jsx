@@ -1,23 +1,23 @@
+// App.jsx 일부 수정
 import { Routes, Route, Navigate, Link, useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
 import Login from './pages/Login.jsx'
 import Dashboard from './pages/Dashboard.jsx'
 import Categories from './pages/Categories.jsx'
 import MaterialsList from './pages/MaterialsList.jsx'
 import EditMaterial from './pages/EditMaterial.jsx'
-import { onAuthStateChanged, signOut } from 'firebase/auth'
-import { auth } from './firebase'
-import { useEffect, useState } from 'react'
 
 function Shell({ children }) {
   const navigate = useNavigate()
-  const [user, setUser] = useState(null)
+  const [loggedIn, setLoggedIn] = useState(false)
 
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => setUser(u))
-    return () => unsub()
-  }, [])
+  useEffect(()=>{
+    const ok = localStorage.getItem('loggedIn') === 'true'
+    if(!ok) navigate('/login')
+    setLoggedIn(ok)
+  }, [navigate])
 
-  if (!user) return <Navigate to="/login" replace />
+  if(!loggedIn) return null
 
   return (
     <div className="container">
@@ -28,8 +28,10 @@ function Shell({ children }) {
           <Link to="/categories">분류관리</Link>
         </div>
         <div className="toolbar">
-          <span className="badge">{user.email}</span>
-          <button className="secondary" onClick={async ()=>{ await signOut(auth); navigate('/login'); }}>로그아웃</button>
+          <button className="secondary" onClick={()=>{
+            localStorage.removeItem('loggedIn')
+            navigate('/login')
+          }}>로그아웃</button>
         </div>
       </div>
       {children}
