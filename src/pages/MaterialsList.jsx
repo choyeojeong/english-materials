@@ -13,17 +13,17 @@ export default function MaterialsList(){
   const [medium, setMedium] = useState('')
   const [small, setSmall] = useState('')
 
-  // 드롭다운용(선택한 상위에 따른 하위 목록)
+  // 드롭다운용
   const [L, setL] = useState([])
   const [M, setM] = useState([])
   const [S, setS] = useState([])
 
-  // 표시용(이름 매핑을 위해 전체 맵 보유)
+  // 표시용(전역 맵)
   const [allL, setAllL] = useState([])
   const [allM, setAllM] = useState([])
   const [allS, setAllS] = useState([])
 
-  // -------- 카테고리 로딩 (드롭다운) --------
+  // 드롭다운 로딩
   useEffect(()=>{
     const run = async ()=>{
       const Lsnap = await getDocs(query(collection(db,'categories'), where('level','==','L'), orderBy('order','asc')))
@@ -31,28 +31,24 @@ export default function MaterialsList(){
     }
     run()
   },[])
-
   useEffect(()=>{
     const run = async ()=>{
       if(!large){ setM([]); return }
       const Msnap = await getDocs(query(
         collection(db,'categories'),
-        where('level','==','M'),
-        where('parentId','==',large),
+        where('level','==','M'), where('parentId','==', large),
         orderBy('order','asc')
       ))
       setM(Msnap.docs.map(d=>({id:d.id, ...d.data()})))
     }
     run()
   },[large])
-
   useEffect(()=>{
     const run = async ()=>{
       if(!medium){ setS([]); return }
       const Ssnap = await getDocs(query(
         collection(db,'categories'),
-        where('level','==','S'),
-        where('parentId','==',medium),
+        where('level','==','S'), where('parentId','==', medium),
         orderBy('order','asc')
       ))
       setS(Ssnap.docs.map(d=>({id:d.id, ...d.data()})))
@@ -60,7 +56,7 @@ export default function MaterialsList(){
     run()
   },[medium])
 
-  // -------- 카테고리 전역 로딩 (표시용 맵) --------
+  // 전역 맵
   useEffect(()=>{
     const run = async ()=>{
       const [Ls, Ms, Ss] = await Promise.all([
@@ -75,21 +71,26 @@ export default function MaterialsList(){
     run()
   },[])
 
-  // -------- 데이터 로드 --------
+  // 데이터 로드
   const load = async ()=>{
     setLoading(true)
-    let q = query(collection(db,'materials'), orderBy('createdAt','desc'))
+    let qRef = query(collection(db,'materials'), orderBy('createdAt','desc'))
     const clauses = []
     if(type) clauses.push(where('type','==', type))
     if(difficulty) clauses.push(where('difficulty','==', difficulty))
-    if(large) clauses.push(where('largeCategoryId','==', large))
-    if(medium) clauses.push(where('mediumCategoryId','==', medium))
-    if(small) clauses.push(where('smallCategoryId','==', small))
+
+    // 다중 분류 필터: array-contains 로 검색
+    if(large) clauses.push(where('largeIds','array-contains', large))
+    if(medium) clauses.push(where('mediumIds','array-contains', medium))
+    if(small) clauses.push(where('smallIds','array-contains', small))
+
     if(clauses.length){
-      q = query(collection(db,'materials'), ...clauses, orderBy('createdAt','desc'))
+      qRef = query(collection(db,'materials'), ...clauses, orderBy('createdAt','desc'))
     }
-    const snap = await getDocs(q)
+
+    const snap = await getDocs(qRef)
     let arr = snap.docs.map(d=>({id:d.id, ...d.data()}))
+
     if(qText){
       const s = qText.toLowerCase()
       arr = arr.filter(it =>
@@ -101,8 +102,7 @@ export default function MaterialsList(){
     setItems(arr)
     setLoading(false)
   }
-
-  useEffect(()=>{ load() },[]) // 초기 로드
+  useEffect(()=>{ load() },[]) // 초기
 
   const onDelete = async (id)=>{
     if(!confirm('정말 삭제할까요?')) return
@@ -110,22 +110,18 @@ export default function MaterialsList(){
     await load()
   }
 
-  // 드롭다운용 맵 (선택한 상위에 따라 바뀜)
-  const Lmap = useMemo(()=>Object.fromEntries(L.map(x=>[x.id,x.name])),[L])
-  const Mmap = useMemo(()=>Object.fromEntries(M.map(x=>[x.id,x.name])),[M])
-  const Smap = useMemo(()=>Object.fromEntries(S.map(x=>[x.id,x.name])),[S])
-
-  // 표시용 전역 맵 (항상 전체)
   const LmapAll = useMemo(()=>Object.fromEntries(allL.map(x=>[x.id,x.name])),[allL])
   const MmapAll = useMemo(()=>Object.fromEntries(allM.map(x=>[x.id,x.name])),[allM])
   const SmapAll = useMemo(()=>Object.fromEntries(allS.map(x=>[x.id,x.name])),[allS])
 
-  // 필요하면 "최하위만" 보여줄 때 사용 가능한 헬퍼
-  const lowestCategoryName = (it)=>{
-    if (it.smallCategoryId && SmapAll[it.smallCategoryId]) return SmapAll[it.smallCategoryId]
-    if (it.mediumCategoryId && MmapAll[it.mediumCategoryId]) return MmapAll[it.mediumCategoryId]
-    if (it.largeCategoryId && LmapAll[it.largeCategoryId]) return LmapAll[it.largeCategoryId]
-    return ''
+  // 표시용: 한 문서의 경로 목록 가져오기(레거시 호환)
+  const getPathsFor = (it)=>{
+    if(Array.isArray(it.paths) && it.paths.length) return it.paths
+    return [{
+      largeId: it.largeCategoryId || null,
+      mediumId: it.mediumCategoryId || null,
+      smallId: it.smallCategoryId || null
+    }].filter(p=>p.largeId || p.mediumId || p.smallId)
   }
 
   return (
@@ -189,8 +185,8 @@ export default function MaterialsList(){
               <th style={{width:80}}>타입</th>
               <th>영문</th>
               <th>한국어 해석</th>
-              <th style={{width:140}}>난이도</th>
-              <th style={{width:220}}>분류</th>
+              <th style={{width:100}}>난이도</th>
+              <th style={{width:300}}>분류(여러 경로)</th>
               <th style={{width:160}}>출처</th>
               <th style={{width:180}}>작업</th>
             </tr>
@@ -203,21 +199,16 @@ export default function MaterialsList(){
                 <td style={{maxWidth:300, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}} title={it.translationKo}>{it.translationKo}</td>
                 <td>{it.difficulty||'-'}</td>
                 <td>
-                  <div style={{display:'flex', gap:4, flexWrap:'wrap'}}>
-                    {/* 존재하는 이름만 렌더링: ? 제거 */}
-                    {it.largeCategoryId && LmapAll[it.largeCategoryId] && (
-                      <span className="badge">{LmapAll[it.largeCategoryId]}</span>
-                    )}
-                    {it.mediumCategoryId && MmapAll[it.mediumCategoryId] && (
-                      <span className="badge">{MmapAll[it.mediumCategoryId]}</span>
-                    )}
-                    {it.smallCategoryId && SmapAll[it.smallCategoryId] && (
-                      <span className="badge">{SmapAll[it.smallCategoryId]}</span>
-                    )}
+                  <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
+                    {getPathsFor(it).map((p, idx)=>(
+                      <div key={idx} style={{display:'flex', gap:4, alignItems:'center'}}>
+                        {p.largeId && LmapAll[p.largeId] && <span className="badge">{LmapAll[p.largeId]}</span>}
+                        {p.mediumId && MmapAll[p.mediumId] && <span className="badge">{MmapAll[p.mediumId]}</span>}
+                        {p.smallId && SmapAll[p.smallId] && <span className="badge">{SmapAll[p.smallId]}</span>}
+                      </div>
+                    ))}
+                    {getPathsFor(it).length===0 && <span style={{color:'#777'}}>-</span>}
                   </div>
-                  {/* 만약 "최하위만 한 줄"로 보여주고 싶다면 위 블럭 대신 아래 한 줄로 교체하세요.
-                  {lowestCategoryName(it) ? <span className="badge">{lowestCategoryName(it)}</span> : <span style={{color:'#777'}}>-</span>}
-                  */}
                 </td>
                 <td>{it.source?.text || '-'}</td>
                 <td className="toolbar">
