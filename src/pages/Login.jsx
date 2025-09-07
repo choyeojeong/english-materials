@@ -10,7 +10,7 @@ export default function Login(){
   const onSubmit = (e)=>{
     e.preventDefault()
     // 고정 아이디/비밀번호 체크
-    if(id === '14jj' && pw === 'whalsrb98!@'){
+    if(id === 'rabbit' && pw === 'habit'){
       // 로그인 성공 → localStorage에 토큰 저장
       localStorage.setItem('loggedIn', 'true')
       nav('/')
