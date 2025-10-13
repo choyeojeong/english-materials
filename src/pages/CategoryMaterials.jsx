@@ -13,36 +13,43 @@ function parseParams(sp) {
   const largeId = sp.get('L') || null;
   const mediumId = sp.get('M') || null;
   const smallId = sp.get('S') || null;
+  const difficulty = sp.get('D') || '';
   const q = sp.get('q') || '';
-  return {
-    type,
-    path: { largeId, mediumId, smallId },
-    qText: q,
-  };
+  return { type, difficulty, path: { largeId, mediumId, smallId }, qText: q };
 }
-function buildParams({ type, path, qText }) {
+function buildParams({ type, difficulty, path, qText }) {
   const p = new URLSearchParams();
   if (type) p.set('type', type);
+  if (difficulty) p.set('D', difficulty);
   if (path?.largeId) p.set('L', path.largeId);
   if (path?.mediumId) p.set('M', path.mediumId);
   if (path?.smallId) p.set('S', path.smallId);
-  if (qText?.trim()) p.set('q', qText.trim());
+  if ((qText || '').trim()) p.set('q', qText.trim());
   return p;
 }
 function paramsToString(sp) {
-  // 정렬된 문자열로 비교 (루프 방지)
-  return [...sp.entries()].sort((a,b)=> a[0].localeCompare(b[0])).map(([k,v])=>`${k}=${v}`).join('&');
+  return [...sp.entries()]
+    .sort((a,b)=> a[0].localeCompare(b[0]))
+    .map(([k,v])=>`${k}=${v}`).join('&');
 }
 
 export default function CategoryMaterials() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const applyingRef = useRef(false); // 우리 쪽에서 setSearchParams 했는지 여부
+  const applyingRef = useRef(false);
   const lastAppliedRef = useRef(paramsToString(searchParams));
 
   // 필터 상태
-  const [type, setType] = useState('sentence'); // 기본: 문장
+  const [type, setType] = useState('sentence');
+  const [difficulty, setDifficulty] = useState('');
   const [path, setPath] = useState({ largeId:null, mediumId:null, smallId:null });
   const [qText, setQText] = useState('');
+
+  // 디바운스된 검색어
+  const [debouncedQ, setDebouncedQ] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(qText.trim()), 300);
+    return () => clearTimeout(t);
+  }, [qText]);
 
   // 결과
   const [items, setItems] = useState([]);
@@ -54,13 +61,12 @@ export default function CategoryMaterials() {
   useEffect(() => {
     const cur = paramsToString(searchParams);
     if (cur === lastAppliedRef.current && applyingRef.current) {
-      // 방금 우리가 쓴 것: 플래그만 해제
       applyingRef.current = false;
       return;
     }
-    // 브라우저 내비게이션 혹은 최초 진입: URL 값을 state에 반영
-    const { type: t, path: p, qText: q } = parseParams(searchParams);
+    const { type: t, difficulty: d, path: p, qText: q } = parseParams(searchParams);
     setType(t);
+    setDifficulty(d);
     setPath(p);
     setQText(q);
     lastAppliedRef.current = cur;
@@ -69,7 +75,7 @@ export default function CategoryMaterials() {
 
   // --- state -> URL (사용자 조작 반영) ---
   useEffect(() => {
-    const next = buildParams({ type, path, qText });
+    const next = buildParams({ type, difficulty, path, qText });
     const nextStr = paramsToString(next);
     if (nextStr !== lastAppliedRef.current) {
       applyingRef.current = true;
@@ -77,9 +83,9 @@ export default function CategoryMaterials() {
       lastAppliedRef.current = nextStr;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [type, path.largeId, path.mediumId, path.smallId, qText]);
+  }, [type, difficulty, path.largeId, path.mediumId, path.smallId, qText]);
 
-  // 쿼리 빌드용: 가장 깊은 선택을 우선
+  // 분류 조건(가장 깊은 선택 우선)
   const categoryClause = useMemo(() => {
     if (path.smallId)  return { field: 'smallIds',  value: path.smallId };
     if (path.mediumId) return { field: 'mediumIds', value: path.mediumId };
@@ -87,48 +93,52 @@ export default function CategoryMaterials() {
     return null;
   }, [path]);
 
+  // 쿼리 빌더 (분류 미선택도 동작)
   const buildQuery = (cursor=null) => {
     const clauses = [];
     if (type) clauses.push(where('type','==', type));
+    if (difficulty) clauses.push(where('difficulty','==', difficulty));
     if (categoryClause) clauses.push(where(categoryClause.field, 'array-contains', categoryClause.value));
-    // 최신순 정렬
-    let qRef = query(collection(db, 'materials'), ...clauses, orderBy('createdAt','desc'), limit(50));
-    if (cursor) qRef = query(collection(db, 'materials'), ...clauses, orderBy('createdAt','desc'), startAfter(cursor), limit(50));
+    let qRef = query(collection(db, 'materials'), ...clauses, orderBy('createdAt','desc'), limit(30));
+    if (cursor) qRef = query(collection(db, 'materials'), ...clauses, orderBy('createdAt','desc'), startAfter(cursor), limit(30));
     return qRef;
   };
 
   const load = async (isMore=false) => {
     setLoading(true);
-    const qRef = buildQuery(isMore ? nextCursor : null);
-    const snap = await getDocs(qRef);
-    const docs = snap.docs.map(d => ({ id:d.id, ...d.data() }));
-    const filtered = qText.trim()
-      ? docs.filter(it => {
-          const s = qText.trim().toLowerCase();
-          return (it.text||'').toLowerCase().includes(s)
-              || (it.translationKo||'').toLowerCase().includes(s)
-              || (it.source?.text||'').toLowerCase().includes(s);
-        })
-      : docs;
+    try {
+      const qRef = buildQuery(isMore ? nextCursor : null);
+      const snap = await getDocs(qRef);
+      const docs = snap.docs.map(d => ({ id:d.id, ...d.data() }));
 
-    if (isMore) {
-      setItems(prev => [...prev, ...filtered]);
-    } else {
-      setItems(filtered);
+      // 디바운스된 q로 클라이언트 필터
+      const filtered = debouncedQ
+        ? docs.filter(it => {
+            const s = debouncedQ.toLowerCase();
+            return (it.text||'').toLowerCase().includes(s)
+                || (it.translationKo||'').toLowerCase().includes(s)
+                || (it.source?.text||'').toLowerCase().includes(s);
+          })
+        : docs;
+
+      if (isMore) setItems(prev => [...prev, ...filtered]);
+      else setItems(filtered);
+
+      const lastDoc = snap.docs[snap.docs.length - 1] || null;
+      setNextCursor(lastDoc);
+      setHasMore(!!lastDoc);
+    } catch (err) {
+      console.error('[CategoryMaterials] load error:', err);
+    } finally {
+      setLoading(false);
     }
-
-    // 페이지네이션 커서
-    const lastDoc = snap.docs[snap.docs.length - 1] || null;
-    setNextCursor(lastDoc);
-    setHasMore(!!lastDoc);
-    setLoading(false);
   };
 
-  // 필터 변경 시 재조회 (type/분류 변경 → 자동 조회)
-  useEffect(() => { 
-    load(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [type, categoryClause?.field, categoryClause?.value]);
+  // 타입/난이도/분류 변경 시 서버 재조회
+  useEffect(() => { load(false); /* eslint-disable-next-line */ }, [type, difficulty, categoryClause?.field, categoryClause?.value]);
+
+  // 🔎 디바운스된 검색어 변경 시 재조회 (첫 페이지부터)
+  useEffect(() => { load(false); /* eslint-disable-next-line */ }, [debouncedQ]);
 
   return (
     <>
@@ -142,6 +152,17 @@ export default function CategoryMaterials() {
               <option value="passage">지문</option>
             </select>
           </div>
+
+          <div className="col">
+            <label>난이도</label>
+            <select value={difficulty} onChange={e=>setDifficulty(e.target.value)}>
+              <option value="">전체</option>
+              <option value="A">A(쉬움)</option>
+              <option value="B">B(중간)</option>
+              <option value="C">C(어려움)</option>
+            </select>
+          </div>
+
           <div className="col" style={{flex:2}}>
             <label>분류 선택</label>
             <CategoryPicker
@@ -155,6 +176,7 @@ export default function CategoryMaterials() {
               }}
             />
           </div>
+
           <div className="col" style={{flex:2}}>
             <label>검색(영문/해석/출처)</label>
             <input
@@ -163,6 +185,7 @@ export default function CategoryMaterials() {
               placeholder="예) 도치 / 관계사 / 모평 22번"
             />
           </div>
+
           <div className="col">
             <button className="secondary" onClick={()=>load(false)} disabled={loading}>
               {loading ? '검색중…' : '필터 적용'}
@@ -178,6 +201,7 @@ export default function CategoryMaterials() {
               <th style={{width:80}}>타입</th>
               <th>영문</th>
               <th>한국어 해석</th>
+              <th style={{width:100}}>난이도</th>
               <th style={{width:160}}>출처</th>
             </tr>
           </thead>
@@ -185,13 +209,14 @@ export default function CategoryMaterials() {
             {items.map(it=>(
               <tr key={it.id}>
                 <td><span className="badge">{it.type}</span></td>
-                <td style={{maxWidth:520, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}} title={it.text}>{it.text}</td>
-                <td style={{maxWidth:420, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}} title={it.translationKo}>{it.translationKo}</td>
+                <td style={{maxWidth:400, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}} title={it.text}>{it.text}</td>
+                <td style={{maxWidth:320, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}} title={it.translationKo}>{it.translationKo}</td>
+                <td>{it.difficulty||'-'}</td>
                 <td>{it.source?.text || '-'}</td>
               </tr>
             ))}
             {!items.length && !loading && (
-              <tr><td colSpan={4} style={{textAlign:'center', color:'#777'}}>데이터가 없습니다.</td></tr>
+              <tr><td colSpan={5} style={{textAlign:'center', color:'#777'}}>데이터가 없습니다.</td></tr>
             )}
           </tbody>
         </table>
