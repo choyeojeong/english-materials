@@ -7,7 +7,6 @@ import { db } from '../firebase';
 import CategoryPicker from '../components/CategoryPicker';
 import { useSearchParams } from 'react-router-dom';
 
-// URL <-> state 변환 유틸
 function parseParams(sp) {
   const type = sp.get('type') || 'sentence';
   const largeId = sp.get('L') || null;
@@ -38,26 +37,23 @@ export default function CategoryMaterials() {
   const applyingRef = useRef(false);
   const lastAppliedRef = useRef(paramsToString(searchParams));
 
-  // 필터 상태
   const [type, setType] = useState('sentence');
   const [difficulty, setDifficulty] = useState('');
   const [path, setPath] = useState({ largeId:null, mediumId:null, smallId:null });
   const [qText, setQText] = useState('');
-
-  // 디바운스된 검색어
   const [debouncedQ, setDebouncedQ] = useState('');
+
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(qText.trim()), 300);
     return () => clearTimeout(t);
   }, [qText]);
 
-  // 결과
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [nextCursor, setNextCursor] = useState(null);
   const [hasMore, setHasMore] = useState(false);
 
-  // --- URL -> state (처음 로드 + 뒤/앞 탐색 반영) ---
+  // URL → state
   useEffect(() => {
     const cur = paramsToString(searchParams);
     if (cur === lastAppliedRef.current && applyingRef.current) {
@@ -65,15 +61,12 @@ export default function CategoryMaterials() {
       return;
     }
     const { type: t, difficulty: d, path: p, qText: q } = parseParams(searchParams);
-    setType(t);
-    setDifficulty(d);
-    setPath(p);
-    setQText(q);
+    setType(t); setDifficulty(d); setPath(p); setQText(q);
     lastAppliedRef.current = cur;
     applyingRef.current = false;
   }, [searchParams]);
 
-  // --- state -> URL (사용자 조작 반영) ---
+  // state → URL
   useEffect(() => {
     const next = buildParams({ type, difficulty, path, qText });
     const nextStr = paramsToString(next);
@@ -82,10 +75,8 @@ export default function CategoryMaterials() {
       setSearchParams(next, { replace: true });
       lastAppliedRef.current = nextStr;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [type, difficulty, path.largeId, path.mediumId, path.smallId, qText]);
+  }, [type, difficulty, path.largeId, path.mediumId, path.smallId, qText, setSearchParams]);
 
-  // 분류 조건(가장 깊은 선택 우선)
   const categoryClause = useMemo(() => {
     if (path.smallId)  return { field: 'smallIds',  value: path.smallId };
     if (path.mediumId) return { field: 'mediumIds', value: path.mediumId };
@@ -93,40 +84,80 @@ export default function CategoryMaterials() {
     return null;
   }, [path]);
 
-  // 쿼리 빌더 (분류 미선택도 동작)
-  const buildQuery = (cursor=null) => {
-    const clauses = [];
-    if (type) clauses.push(where('type','==', type));
-    if (difficulty) clauses.push(where('difficulty','==', difficulty));
-    if (categoryClause) clauses.push(where(categoryClause.field, 'array-contains', categoryClause.value));
-    let qRef = query(collection(db, 'materials'), ...clauses, orderBy('createdAt','desc'), limit(30));
-    if (cursor) qRef = query(collection(db, 'materials'), ...clauses, orderBy('createdAt','desc'), startAfter(cursor), limit(30));
-    return qRef;
-  };
+  const legacyFieldOf = (arrayField) =>
+    arrayField === 'largeIds' ? 'largeCategoryId'
+    : arrayField === 'mediumIds' ? 'mediumCategoryId'
+    : 'smallCategoryId';
 
   const load = async (isMore=false) => {
     setLoading(true);
     try {
-      const qRef = buildQuery(isMore ? nextCursor : null);
-      const snap = await getDocs(qRef);
-      const docs = snap.docs.map(d => ({ id:d.id, ...d.data() }));
+      const clausesBase = [];
+      if (type) clausesBase.push(where('type','==', type));
+      if (difficulty) clausesBase.push(where('difficulty','==', difficulty));
 
-      // 디바운스된 q로 클라이언트 필터
-      const filtered = debouncedQ
-        ? docs.filter(it => {
-            const s = debouncedQ.toLowerCase();
-            return (it.text||'').toLowerCase().includes(s)
-                || (it.translationKo||'').toLowerCase().includes(s)
-                || (it.source?.text||'').toLowerCase().includes(s);
-          })
-        : docs;
+      // 1) 신규 배열 쿼리
+      const qMain = (() => {
+        if (!categoryClause) {
+          return query(
+            collection(db, 'materials'),
+            ...clausesBase,
+            orderBy('createdAt','desc'),
+            ...(isMore && nextCursor ? [startAfter(nextCursor)] : []),
+            limit(30)
+          );
+        }
+        return query(
+          collection(db, 'materials'),
+          ...clausesBase,
+          where(categoryClause.field, 'array-contains', categoryClause.value),
+          orderBy('createdAt','desc'),
+          limit(100)
+        );
+      })();
 
-      if (isMore) setItems(prev => [...prev, ...filtered]);
-      else setItems(filtered);
+      // 2) 레거시 단일 필드 쿼리
+      const qLegacy = categoryClause ? query(
+        collection(db, 'materials'),
+        ...clausesBase,
+        where(legacyFieldOf(categoryClause.field), '==', categoryClause.value),
+        orderBy('createdAt','desc'),
+        limit(100)
+      ) : null;
 
-      const lastDoc = snap.docs[snap.docs.length - 1] || null;
-      setNextCursor(lastDoc);
-      setHasMore(!!lastDoc);
+      const [snapMain, snapLegacy] = await Promise.all([
+        getDocs(qMain),
+        qLegacy ? getDocs(qLegacy) : Promise.resolve(null),
+      ]);
+
+      const rows = (snap) => (snap ? snap.docs.map(d=>({ id:d.id, ...d.data(), _doc:d })) : []);
+      const mergedMap = new Map();
+      rows(snapMain).forEach(r => mergedMap.set(r.id, r));
+      rows(snapLegacy).forEach(r => mergedMap.set(r.id, r));
+      let merged = [...mergedMap.values()];
+
+      // 검색어 필터
+      const s = (debouncedQ || '').toLowerCase();
+      if (s) {
+        merged = merged.filter(it =>
+          (it.text||'').toLowerCase().includes(s) ||
+          (it.translationKo||'').toLowerCase().includes(s) ||
+          (it.source?.text||'').toLowerCase().includes(s)
+        );
+      }
+
+      merged.sort((a,b)=> (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0));
+      const page = merged.slice(0, 30);
+      setItems(page);
+
+      if (!categoryClause) {
+        const lastDoc = snapMain.docs[snapMain.docs.length - 1] || null;
+        setNextCursor(lastDoc);
+        setHasMore(!!lastDoc);
+      } else {
+        setNextCursor(null);
+        setHasMore(false);
+      }
     } catch (err) {
       console.error('[CategoryMaterials] load error:', err);
     } finally {
@@ -134,10 +165,7 @@ export default function CategoryMaterials() {
     }
   };
 
-  // 타입/난이도/분류 변경 시 서버 재조회
   useEffect(() => { load(false); /* eslint-disable-next-line */ }, [type, difficulty, categoryClause?.field, categoryClause?.value]);
-
-  // 🔎 디바운스된 검색어 변경 시 재조회 (첫 페이지부터)
   useEffect(() => { load(false); /* eslint-disable-next-line */ }, [debouncedQ]);
 
   return (
