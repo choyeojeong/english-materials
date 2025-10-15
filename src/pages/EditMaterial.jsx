@@ -1,3 +1,4 @@
+// src/pages/EditMaterial.jsx
 import { addDoc, collection, doc, getDoc, getDocs, query, serverTimestamp, updateDoc, where } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useEffect, useState } from 'react'
@@ -14,7 +15,6 @@ export default function EditMaterial(){
   const [translationKo, setTranslationKo] = useState('')
   const [difficulty, setDifficulty] = useState('B')
   const [sourceText, setSourceText] = useState('')
-  const [tags, setTags] = useState('')
 
   // 다중 분류 경로
   const [paths, setPaths] = useState([{ largeId:null, mediumId:null, smallId:null }])
@@ -31,7 +31,6 @@ export default function EditMaterial(){
     setTranslationKo(d.translationKo||'')
     setDifficulty(d.difficulty||'B')
     setSourceText(d.source?.text||'')
-    setTags((d.tags||[]).join(', '))
 
     // 호환: 새 구조(paths)가 있으면 그걸, 없으면 단일 필드로 구성
     if(Array.isArray(d.paths) && d.paths.length){
@@ -81,7 +80,7 @@ export default function EditMaterial(){
     const mediumIds = uniq(cleaned.map(p=>p.mediumId))
     const smallIds = uniq(cleaned.map(p=>p.smallId))
 
-    // 레거시 단일 필드(최초 경로)도 유지해 두면 기존 코드와 호환 용이
+    // 레거시 단일 필드(최초 경로)도 유지하면 기존 코드와 호환 용이
     const legacyFirst = cleaned[0] || {largeId:null, mediumId:null, smallId:null}
 
     const payload = {
@@ -90,7 +89,6 @@ export default function EditMaterial(){
       translationKo: translationKo.trim(),
       difficulty,
       source: { text: sourceText.trim() || null },
-      tags: tags.split(',').map(s=>s.trim()).filter(Boolean),
       // 새 구조
       paths: cleaned,
       largeIds, mediumIds, smallIds,
@@ -131,12 +129,9 @@ export default function EditMaterial(){
           </div>
           <div className="col">
             <label>출처(자유입력)</label>
-            <input value={sourceText} onChange={e=>setSourceText(e.target.value)} placeholder="예) 2023 고3 9월 모평 22번" />
+            <input value={sourceText} onChange={e=>setSourceText(e.target.value)} placeholder="예) 고2-2023-09-29" />
           </div>
-          <div className="col">
-            <label>태그(쉼표 구분)</label>
-            <input value={tags} onChange={e=>setTags(e.target.value)} placeholder="예) 도치, 관계사절" />
-          </div>
+          {/* 태그 입력칸 완전 제거됨 */}
         </div>
 
         {/* 다중 분류 선택 */}

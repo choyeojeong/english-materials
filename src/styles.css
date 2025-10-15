@@ -1,22 +1,130 @@
+/* ====== Theme Vars ====== */
 :root {
-  --blue:#245ea8;
-  --bg:#eef3f9;
+  --blue: #245ea8;
+  --bg: #eef3f9;
+  --fg: #222;
+  --muted: #666;
+  --soft-border: #e5ebf6;
+  --chip-bg: #f7faff;
 }
-* { box-sizing:border-box; }
-body { margin:0; font-family:system-ui,-apple-system,Segoe UI, Roboto, Arial, Apple Color Emoji, Segoe UI Emoji; background:var(--bg); }
-.container { max-width:1100px; margin:0 auto; padding:24px; }
-.card { background:#fff; border-radius:12px; box-shadow:0 4px 12px rgba(0,0,0,0.06); padding:20px; margin-bottom:16px; }
-.title { color:var(--blue); font-weight:700; margin:0 0 12px; }
-.row { display:flex; gap:12px; flex-wrap:wrap; }
-.col { flex:1; min-width:240px; }
-label { display:block; font-size:13px; color:#555; margin-bottom:6px; }
-input, select, textarea { width:100%; padding:10px; border:1px solid #ccc; border-radius:8px; background:#fff; }
-button { background:var(--blue); color:#fff; border:none; border-radius:8px; padding:10px 14px; cursor:pointer; }
-button.secondary { background:#ccc; color:#333; }
-button.danger { background:#d9534f; }
-.toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-.badge { background:#f3f6fb; border:1px solid #e5ebf6; color:#3a4b6a; padding:2px 8px; border-radius:999px; font-size:12px; }
-table { width:100%; border-collapse:collapse; }
-th, td { padding:10px; border-bottom:1px solid #eee; text-align:left; font-size:14px; }
-a { color:var(--blue); text-decoration:none; }
-.nav { display:flex; gap:8px; margin-bottom:12px; }
+
+/* ====== Base ====== */
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  background: var(--bg);
+  color: var(--fg);
+}
+a { color: var(--blue); text-decoration: none; }
+
+.container { max-width: 1100px; margin: 0 auto; padding: 24px; }
+
+.card {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+  padding: 20px;
+  margin-bottom: 16px;
+}
+
+.title { color: var(--blue); font-weight: 700; margin: 0 0 12px; }
+
+.row { display: flex; gap: 12px; flex-wrap: wrap; }
+.col { flex: 1; min-width: 240px; }
+
+label { display: block; font-size: 13px; color: #555; margin-bottom: 6px; }
+input, select, textarea {
+  width: 100%; padding: 10px;
+  border: 1px solid #ccc; border-radius: 8px; background: #fff;
+}
+
+button {
+  background: var(--blue); color: #fff;
+  border: none; border-radius: 8px;
+  padding: 10px 14px; cursor: pointer;
+}
+button.secondary { background: #ccc; color: #333; }
+button.danger { background: #d9534f; }
+.toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+.badge {
+  background: #f3f6fb; border: 1px solid var(--soft-border);
+  color: #3a4b6a; padding: 2px 8px; border-radius: 999px; font-size: 12px;
+}
+
+/* (옵션) 표 기본 – 다른 페이지 호환용 */
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 10px; border-bottom: 1px solid #eee; text-align: left; font-size: 14px; }
+
+/* ====== Top Navigation ====== */
+.nav { display: flex; gap: 8px; margin-bottom: 12px; }
+.nav a {
+  display: inline-block; padding: 8px 14px;
+  border: 1px solid #bcd0f2; border-radius: 8px;
+  background: #f8fbff; color: #1e64c8; font-weight: 500;
+  transition: all .15s ease-in-out;
+}
+.nav a:hover { background: #e9f1ff; border-color: #7faef5; color: #0d47a1; }
+.nav a:active { background: #dce9ff; border-color: #0d47a1; }
+.nav a.active { background: #1e64c8; color: #fff; border-color: #1e64c8; }
+
+/* ====== Materials (카드형 2줄) ====== */
+.materials-list { display: flex; flex-direction: column; gap: 12px; }
+
+.list-head {
+  display: grid; grid-template-columns: 80px 1fr;
+  font-weight: 700; color: #333; padding: 0 8px 4px;
+  border-bottom: 1px solid #eee; margin-bottom: 8px;
+}
+
+.material-card {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+  padding: 12px 14px;
+}
+
+/* 윗줄: 타입 + (영문 | 한국어) */
+.row-top { display: grid; grid-template-columns: 80px 1fr; gap: 12px; }
+.type-badge { display: flex; align-items: flex-start; justify-content: center; }
+
+.eng-ko { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.english, .korean {
+  font-size: 15px; line-height: 1.7; color: var(--fg);
+  word-break: keep-all; white-space: pre-wrap;
+}
+
+/* 아랫줄: 난이도 · 분류 · 출처 · 작업 */
+.row-bottom{
+  display: grid; gap: 10px; align-items: center;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) 220px;
+  border-top: 1px dashed #eee; margin-top: 10px; padding-top: 10px;
+}
+.meta { font-size: 13px; color: #555; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.muted { color: var(--muted); }
+
+.actions { display: flex; justify-content: flex-end; gap: 6px; }
+
+/* ====== Category Chips ====== */
+.cat-paths { display: flex; flex-wrap: wrap; gap: 6px; }
+.cat-path { display: flex; align-items: center; gap: 6px; }
+.cat-sep { color: #95a6c7; font-weight: 700; }
+
+.cat-chip {
+  padding: 2px 8px; border-radius: 999px; font-size: 12px;
+  border: 1px solid var(--soft-border); background: var(--chip-bg); color: #2f4e85;
+}
+.cat-chip.cat-L { background:#eef6ff; border-color:#cfe4ff; color:#204a87; }
+.cat-chip.cat-M { background:#eefdf6; border-color:#c9f2e1; color:#1b8056; }
+.cat-chip.cat-S { background:#f6edff; border-color:#e3d5ff; color:#6c3fb3; }
+.cat-none { color: #777; }
+
+/* 빈 상태 */
+.empty { text-align: center; color: #777; padding: 24px 0; }
+
+/* ====== Responsive ====== */
+@media (max-width: 860px){
+  .eng-ko { grid-template-columns: 1fr; }
+  .row-bottom { grid-template-columns: 1fr; }
+}

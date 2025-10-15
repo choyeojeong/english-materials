@@ -6,6 +6,8 @@ import { Link } from 'react-router-dom'
 export default function MaterialsList(){
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
   const [type, setType] = useState('')
   const [difficulty, setDifficulty] = useState('')
   const [qText, setQText] = useState('')
@@ -23,42 +25,41 @@ export default function MaterialsList(){
   const [allM, setAllM] = useState([])
   const [allS, setAllS] = useState([])
 
-  // 드롭다운 로딩
+  // 대분류
   useEffect(()=>{
-    const run = async ()=>{
-      const Lsnap = await getDocs(query(collection(db,'categories'), where('level','==','L'), orderBy('order','asc')))
-      setL(Lsnap.docs.map(d=>({id:d.id, ...d.data()})))
-    }
-    run()
+    (async ()=>{
+      const snap = await getDocs(query(collection(db,'categories'), where('level','==','L'), orderBy('order','asc')))
+      setL(snap.docs.map(d=>({id:d.id, ...d.data()})))
+    })()
   },[])
+  // 중분류
   useEffect(()=>{
-    const run = async ()=>{
+    (async ()=>{
       if(!large){ setM([]); return }
-      const Msnap = await getDocs(query(
+      const snap = await getDocs(query(
         collection(db,'categories'),
         where('level','==','M'), where('parentId','==', large),
         orderBy('order','asc')
       ))
-      setM(Msnap.docs.map(d=>({id:d.id, ...d.data()})))
-    }
-    run()
+      setM(snap.docs.map(d=>({id:d.id, ...d.data()})))
+    })()
   },[large])
+  // 소분류
   useEffect(()=>{
-    const run = async ()=>{
+    (async ()=>{
       if(!medium){ setS([]); return }
-      const Ssnap = await getDocs(query(
+      const snap = await getDocs(query(
         collection(db,'categories'),
         where('level','==','S'), where('parentId','==', medium),
         orderBy('order','asc')
       ))
-      setS(Ssnap.docs.map(d=>({id:d.id, ...d.data()})))
-    }
-    run()
+      setS(snap.docs.map(d=>({id:d.id, ...d.data()})))
+    })()
   },[medium])
 
-  // 전역 맵
+  // 전역 맵(표시용)
   useEffect(()=>{
-    const run = async ()=>{
+    (async ()=>{
       const [Ls, Ms, Ss] = await Promise.all([
         getDocs(query(collection(db,'categories'), where('level','==','L'))),
         getDocs(query(collection(db,'categories'), where('level','==','M'))),
@@ -67,42 +68,57 @@ export default function MaterialsList(){
       setAllL(Ls.docs.map(d=>({id:d.id, ...d.data()})))
       setAllM(Ms.docs.map(d=>({id:d.id, ...d.data()})))
       setAllS(Ss.docs.map(d=>({id:d.id, ...d.data()})))
-    }
-    run()
+    })()
   },[])
 
-  // 데이터 로드
   const load = async ()=>{
     setLoading(true)
-    let qRef = query(collection(db,'materials'), orderBy('createdAt','desc'))
-    const clauses = []
-    if(type) clauses.push(where('type','==', type))
-    if(difficulty) clauses.push(where('difficulty','==', difficulty))
+    setError('')
+    try{
+      // 기본: 최신순(orderBy) – 필터 없을 때만 안전하게 사용
+      let qRef = query(collection(db,'materials'), orderBy('createdAt','desc'))
 
-    // 다중 분류 필터: array-contains 로 검색
-    if(large) clauses.push(where('largeIds','array-contains', large))
-    if(medium) clauses.push(where('mediumIds','array-contains', medium))
-    if(small) clauses.push(where('smallIds','array-contains', small))
+      const clauses = []
+      if(type) clauses.push(where('type','==', type))
+      if(difficulty) clauses.push(where('difficulty','==', difficulty))
+      if(large) clauses.push(where('largeIds','array-contains', large))
+      if(medium) clauses.push(where('mediumIds','array-contains', medium))
+      if(small) clauses.push(where('smallIds','array-contains', small))
 
-    if(clauses.length){
-      qRef = query(collection(db,'materials'), ...clauses, orderBy('createdAt','desc'))
+      // ⚠️ 필터가 있으면 복합 인덱스가 필요해지는 경우가 많으므로
+      // Firestore orderBy를 빼고, 가져온 뒤 클라이언트에서 정렬한다.
+      if(clauses.length){
+        qRef = query(collection(db,'materials'), ...clauses)
+      }
+
+      const snap = await getDocs(qRef)
+      let arr = snap.docs.map(d=>({id:d.id, ...d.data()}))
+
+      // 클라이언트 정렬(최신순)
+      arr.sort((a,b)=>{
+        const as = a.createdAt?.seconds ?? 0
+        const bs = b.createdAt?.seconds ?? 0
+        return bs - as
+      })
+
+      // 텍스트 검색
+      if(qText){
+        const s = qText.toLowerCase()
+        arr = arr.filter(it =>
+          (it.text||'').toLowerCase().includes(s) ||
+          (it.translationKo||'').toLowerCase().includes(s) ||
+          (it.source?.text||'').toLowerCase().includes(s)
+        )
+      }
+      setItems(arr)
+    }catch(e){
+      console.error('[materials load error]', e)
+      setError('목록을 불러오지 못했습니다. 필터 조합에 필요한 Firestore 인덱스가 없을 수 있어요.')
+    }finally{
+      setLoading(false)
     }
-
-    const snap = await getDocs(qRef)
-    let arr = snap.docs.map(d=>({id:d.id, ...d.data()}))
-
-    if(qText){
-      const s = qText.toLowerCase()
-      arr = arr.filter(it =>
-        (it.text||'').toLowerCase().includes(s) ||
-        (it.translationKo||'').toLowerCase().includes(s) ||
-        (it.source?.text||'').toLowerCase().includes(s)
-      )
-    }
-    setItems(arr)
-    setLoading(false)
   }
-  useEffect(()=>{ load() },[]) // 초기
+  useEffect(()=>{ load() },[]) // 초기 로딩
 
   const onDelete = async (id)=>{
     if(!confirm('정말 삭제할까요?')) return
@@ -114,7 +130,6 @@ export default function MaterialsList(){
   const MmapAll = useMemo(()=>Object.fromEntries(allM.map(x=>[x.id,x.name])),[allM])
   const SmapAll = useMemo(()=>Object.fromEntries(allS.map(x=>[x.id,x.name])),[allS])
 
-  // 표시용: 한 문서의 경로 목록 가져오기(레거시 호환)
   const getPathsFor = (it)=>{
     if(Array.isArray(it.paths) && it.paths.length) return it.paths
     return [{
@@ -124,15 +139,44 @@ export default function MaterialsList(){
     }].filter(p=>p.largeId || p.mediumId || p.smallId)
   }
 
+  const renderPath = (p, idx) => {
+    const chain = []
+    if (p.largeId && LmapAll[p.largeId]) {
+      chain.push(<span key="L" className="cat-chip cat-L">{LmapAll[p.largeId]}</span>)
+    }
+    if (p.mediumId && MmapAll[p.mediumId]) {
+      if (chain.length) chain.push(<span key="sep1" className="cat-sep">›</span>)
+      chain.push(<span key="M" className="cat-chip cat-M">{MmapAll[p.mediumId]}</span>)
+    }
+    if (p.smallId && SmapAll[p.smallId]) {
+      if (chain.length) chain.push(<span key="sep2" className="cat-sep">›</span>)
+      chain.push(<span key="S" className="cat-chip cat-S">{SmapAll[p.smallId]}</span>)
+    }
+    return (
+      <div className="cat-path" key={idx}>
+        {chain.length ? chain : <span className="cat-none">-</span>}
+      </div>
+    )
+  }
+
   return (
     <>
       <div className="card">
         <h2 className="title">문장/지문 목록</h2>
-        <div className="toolbar" style={{marginBottom:10}}>
+
+        {/* 에러 안내 */}
+        {error && (
+          <div style={{background:'#fff3f3', border:'1px solid #ffd8d8', color:'#b00020', borderRadius:8, padding:'8px 12px', marginBottom:10}}>
+            {error} (필요하면 인덱스 생성 링크 알려드릴게요!)
+          </div>
+        )}
+
+        <div className="toolbar" style={{marginBottom:10, display:'flex', gap:8}}>
           <Link to="/materials/new"><button>+ 새 항목</button></Link>
           <button className="secondary" onClick={load} disabled={loading}>{loading?'불러오는 중..':'새로고침'}</button>
           <input placeholder="검색(영문/해석/출처)" value={qText} onChange={e=>setQText(e.target.value)} style={{flex:1}} />
         </div>
+
         <div className="row">
           <div className="col">
             <label>타입</label>
@@ -173,53 +217,56 @@ export default function MaterialsList(){
             </select>
           </div>
           <div className="col" style={{alignSelf:'end'}}>
-            <button onClick={load}>필터 적용</button>
+            <button onClick={load} disabled={loading}>필터 적용</button>
           </div>
         </div>
       </div>
 
+      {/* ▼ 리스트: 2줄 카드형, 전체 텍스트 표시 */}
       <div className="card">
-        <table>
-          <thead>
-            <tr>
-              <th style={{width:80}}>타입</th>
-              <th>영문</th>
-              <th>한국어 해석</th>
-              <th style={{width:100}}>난이도</th>
-              <th style={{width:300}}>분류(여러 경로)</th>
-              <th style={{width:160}}>출처</th>
-              <th style={{width:180}}>작업</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map(it=>(
-              <tr key={it.id}>
-                <td><span className="badge">{it.type}</span></td>
-                <td style={{maxWidth:380, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}} title={it.text}>{it.text}</td>
-                <td style={{maxWidth:300, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}} title={it.translationKo}>{it.translationKo}</td>
-                <td>{it.difficulty||'-'}</td>
-                <td>
-                  <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
-                    {getPathsFor(it).map((p, idx)=>(
-                      <div key={idx} style={{display:'flex', gap:4, alignItems:'center'}}>
-                        {p.largeId && LmapAll[p.largeId] && <span className="badge">{LmapAll[p.largeId]}</span>}
-                        {p.mediumId && MmapAll[p.mediumId] && <span className="badge">{MmapAll[p.mediumId]}</span>}
-                        {p.smallId && SmapAll[p.smallId] && <span className="badge">{SmapAll[p.smallId]}</span>}
-                      </div>
-                    ))}
-                    {getPathsFor(it).length===0 && <span style={{color:'#777'}}>-</span>}
+        <div className="materials-list">
+          <div className="list-head">
+            <span className="h-type">타입</span>
+            <span className="h-eng-ko">영문 · 한국어 해석</span>
+          </div>
+
+          {items.map(it=>(
+            <div key={it.id} className="material-card">
+              <div className="row-top">
+                <div className="type-badge">
+                  <span className="badge">{it.type || '-'}</span>
+                </div>
+                <div className="eng-ko">
+                  <div className="english">{it.text}</div>
+                  <div className="korean">{it.translationKo}</div>
+                </div>
+              </div>
+
+              <div className="row-bottom">
+                <div className="meta meta-level">난이도: <b>{it.difficulty || '-'}</b></div>
+                <div className="meta meta-cats">
+                  <span className="muted">분류:</span>
+                  <div className="cat-paths">
+                    {getPathsFor(it).map(renderPath)}
+                    {getPathsFor(it).length===0 && <span className="cat-none">-</span>}
                   </div>
-                </td>
-                <td>{it.source?.text || '-'}</td>
-                <td className="toolbar">
+                </div>
+                <div className="meta meta-source">
+                  <span className="muted">출처:</span>
+                  <span className="source-text">{it.source?.text || '-'}</span>
+                </div>
+                <div className="actions">
                   <Link to={`/materials/${it.id}`}><button className="secondary">수정</button></Link>
                   <button className="danger" onClick={()=>onDelete(it.id)}>삭제</button>
-                </td>
-              </tr>
-            ))}
-            {!items.length && <tr><td colSpan={7} style={{textAlign:'center', color:'#777'}}>데이터가 없습니다.</td></tr>}
-          </tbody>
-        </table>
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {!items.length && (
+            <div className="empty">데이터가 없습니다.</div>
+          )}
+        </div>
       </div>
     </>
   )

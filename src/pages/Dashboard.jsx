@@ -29,17 +29,6 @@ export default function Dashboard(){
               </div>
             </div>
           </div>
-
-          {/* ✅ 분류별 보기 */}
-          <div className="col">
-            <div className="card">
-              <h3 className="title" style={{fontSize:18}}>분류별 보기</h3>
-              <p>선택한 분류(대·중·소)에 속한 문장/지문을 빠르게 조회합니다. (최신순, 페이지네이션 지원)</p>
-              <div className="toolbar">
-                <Link to="/by-category"><button>열기</button></Link>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </>
